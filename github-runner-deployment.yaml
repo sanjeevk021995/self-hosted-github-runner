@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-runner
+  labels:
+    app.kubernetes.io/name: github-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: github-runner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: github-runner
+      annotations:
+        downscaler/exclude: "true"
+    spec:
+      initContainers:
+        - name: init-runner-token
+          image: ghcr.io/k8stooling/github-runner-init:latest
+          envFrom:
+            - secretRef:
+                name: github-secrets
+          resources:
+            limits:
+              cpu: 100m
+              memory: 64Mi
+            requests:
+              cpu: 50m
+              memory: 32Mi
+          volumeMounts:
+            - name: runner-token-volume
+              mountPath: /runner-token
+      containers:
+        - name: runner
+          image: public.ecr.aws/n0o2r0c8/github-runner:latest
+          env:
+            - name: DISABLE_RUNNER_UPDATE
+              value: "true"
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              /app/config.sh --unattended --url ${GITHUB_URL/api.github.com/github.com}/${GITHUB_ORGANIZATION} --token `cat /runner-token/runner_token` --labels self-hosted && /app/run.sh
+          envFrom:
+            - secretRef:
+                name: github-secrets
+          lifecycle:
+            preStop:
+              exec:
+                command: 
+                  - /bin/bash
+                  - -c
+                  - /app/config.sh remove --token `cat /runner-token/runner_token`
+          resources:
+            limits:
+              cpu: "500m"
+              memory: 750Mi
+            requests:
+              cpu: "200m"
+              memory: 250Mi
+          volumeMounts:
+            - name: runner-token-volume
+              mountPath: /runner-token
+      volumes:
+        - name: runner-token-volume
+          emptyDir: {}
